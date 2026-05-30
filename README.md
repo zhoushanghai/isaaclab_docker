@@ -15,13 +15,16 @@ docker exec -it isaaclab232_$(whoami) bash        # 进入容器
 
 ---
 
-## 指定 GPU
+## 指定 GPU / 容器名
 
 ```bash
-./container.sh run              # 全部 GPU
-./container.sh run --gpu 1        # 只用 GPU 1
-./container.sh run --gpu 0,1      # 用 GPU 0 和 1
+./container.sh run                              # 默认容器名 isaaclab232_<用户名>
+./container.sh run --name isaaclab232_hz_exp1   # 自定义容器名（多实例时用）
+./container.sh run --gpu 1                      # 只用 GPU 1
+./container.sh run --name isaaclab232_hz_gpu0 --gpu 0
 ```
+
+`--name` 与 `--gpu` 顺序可互换；不指定 `--name` 时用默认 `isaaclab232_<用户名>`。
 
 ---
 
