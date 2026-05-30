@@ -102,6 +102,10 @@ RUN set -e && \
     usermod -l "${USER_NAME}" hz 2>/dev/null || true && \
     groupmod -n "${USER_NAME}" hz 2>/dev/null || true && \
     usermod -d "/home/${USER_NAME}" -m "${USER_NAME}" && \
+    # 关键：usermod 只改 passwd/group 数字 ID，不会改已有文件的 owner。
+    # install 阶段文件属主仍是 1001，若 run 用户为 1002 则无法读 /isaac-sim（750）。
+    chown -R "${USER_UID}:${USER_GID}" \
+        /home/${USER_NAME} /workspace "${ISAACSIM_PATH}" && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo 'source /workspace/IsaacLab/_isaac_sim/setup_conda_env.sh' >> /home/${USER_NAME}/.bashrc && \
     echo 'export ISAACLAB_PATH=/workspace/IsaacLab' >> /home/${USER_NAME}/.bashrc && \
