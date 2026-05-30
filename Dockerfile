@@ -115,20 +115,7 @@ RUN set -e && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo 'source /workspace/IsaacLab/_isaac_sim/setup_conda_env.sh' >> /home/${USER_NAME}/.bashrc && \
     echo 'export ISAACLAB_PATH=/workspace/IsaacLab' >> /home/${USER_NAME}/.bashrc && \
-    echo "export PS1='\[\e[38;2;157;141;240m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '" >> /home/${USER_NAME}/.bashrc && \
-    cat <<'EOF' >> /home/${USER_NAME}/.bashrc
-
-# 自动进入挂载的项目目录；/workspace/.project_installed 存在则跳过安装
-if [ -d "/workspace/project" ]; then
-    cd /workspace/project
-    if [ ! -f "/workspace/.project_installed" ]; then
-        echo "=================================================="
-        echo "检测到本项目尚未安装，正在执行 ./install_project.sh ..."
-        echo "=================================================="
-        ./install_project.sh
-    fi
-fi
-EOF
+    echo "export PS1='\[\e[38;2;157;141;240m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '" >> /home/${USER_NAME}/.bashrc
 
 USER ${USER_NAME}
 

@@ -11,7 +11,7 @@ docker exec -it isaaclab232_$(whoami) bash        # 进入容器
 - 镜像名：`sim51_lab232_<用户名>`
 - 容器名：`isaaclab232_<用户名>`
 - 项目目录挂载到容器内 `/workspace/project`
-- 首次进入 shell 会自动安装本项目（`install_project.sh`）
+- 项目依赖需自行在挂载目录执行 `./install_project.sh`（进容器后手动一次即可）
 
 ---
 

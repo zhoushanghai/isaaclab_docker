@@ -1,108 +1,91 @@
-# HPC 上使用本 Docker 镜像
+# HPC 使用指南
 
-本镜像由 `isaaclab_docker/Dockerfile` 构建，用法参考 `container.sh`。  
-HPC 计算节点不能 `docker run`，需转为 **Singularity `.sif`** 后在 GPU 节点运行。
+HPC 不能 `docker run`，需 **Apptainer `.sif`**。登录节点无 `/etc/subuid`，**不能在 HPC 上 `apptainer build`**（会得到 `root:root`，运行时 Permission denied）。流程：**Docker 按 HPC uid 构建 → 本机 Apptainer 1.4.5 + `--fakeroot` 转 sif → 上传 HPC → 仅 `apptainer exec`**。
 
-（集群通用思路可参考 [Isaac Lab Cluster Guide](https://isaac-sim.github.io/IsaacLab/main/source/deployment/cluster.html)，但本文以本仓库为准。）
+
+| 项目        | 值                        |
+| --------- | ------------------------ |
+| 镜像名       | `sim51_lab232_<用户名>`     |
+| Isaac Lab | `/workspace/IsaacLab`    |
+| 项目挂载      | `/workspace/project`     |
+| 容器用户      | build 时写入，须与 HPC `id` 一致 |
+
 
 ---
 
-## 镜像说明
+## 1. 构建并导出 `.tar`（有 Docker 的机器）
 
-
-| 项目        | 值                                                                  |
-| --------- | ------------------------------------------------------------------ |
-| 基础镜像      | `nvcr.io/nvidia/isaac-sim:5.1.0`                                   |
-| 镜像名       | `sim51_lab232_<用户名>`（`container.sh build` 生成）                      |
-| Isaac Lab | `/workspace/IsaacLab`（commit 见 `container.sh` 中 `ISAACLAB_COMMIT`） |
-| Python    | `./isaaclab.sh -p`（容器内 `python`/`pip` 均指向它）                        |
-| 项目目录      | 挂载到 `/workspace/project`                                           |
-| 容器用户      | build 时写入的 UID/GID（须与 HPC 上一致）                                     |
-
-
-首次进入交互 shell 且挂载了 `/workspace/project` 时，会自动执行 `./install_project.sh`（见 `Dockerfile` `.bashrc` 逻辑）。
-
----
-
-## 1. 构建并导出（有 Docker 的机器）
-
-**若镜像要在 HPC 上用，build 时必须对齐 HPC 的 uid/gid**（先在 HPC 上 `id`）：
+在 HPC 上 `id`，再 build（勿用本机默认 `sim51_lab232_hz` 给 HPC 用）：
 
 ```bash
-cd isaaclab_docker
-
 CONTAINER_USER=hwang721 \
 CONTAINER_UID=204491 \
 CONTAINER_GID=201375 \
 ./container.sh build
 
 docker save sim51_lab232_hwang721:latest -o sim51_lab232_hwang721.tar
-scp sim51_lab232_hwang721.tar hpc:~/containers/
 ```
+
+传到本机或 HPC 中转目录均可；本机已有对齐的 `.tar` 可跳过。
 
 ---
 
-## 2. 转 sif（登录节点 mgmt-*，一次性）
+## 2. 本机转 `.sif`（Apptainer 1.4.5 + fakeroot）
 
-> **不要在 `srun` 后的 GPU 节点 build**——计算节点无 singularity。
+### 安装 Apptainer 1.4.5
+
+有 module：`module load apptainer-1.4.5`
+
+Ubuntu 22.04（无 module）：
 
 ```bash
-cd ~/containers
+wget https://github.com/apptainer/apptainer/releases/download/v1.4.5/apptainer_1.4.5_amd64.deb
+sudo apt install -y ./apptainer_1.4.5_amd64.deb
+apptainer --version   # 应为 1.4.5
+```
 
-module load singularity-ce-4.1.3
-singularity build sim51_lab232_hwang721.sif \
+确认本机 subuid：`grep "^$(whoami):" /etc/subuid /etc/subgid`（两行均有输出）。
+
+### build 与验证
+
+```bash
+cd ~/containers   # 或放 .tar 的目录
+
+apptainer build --fakeroot sim51_lab232_hwang721.sif \
   docker-archive://sim51_lab232_hwang721.tar
+
+# uid 应为 204491，不是 0
+apptainer exec sim51_lab232_hwang721.sif stat -c '%u %g %n' /isaac-sim /home/hwang721
 ```
 
-失败加 `--fakeroot`；完成后可删 `.tar`。
+验证通过后上传 HPC，本机可删 `.tar`（build 时 `.tar`+`.sif` 约需 40G+ 空间）：
+
+```bash
+rsync -avP sim51_lab232_hwang721.sif hpc:~/containers/
+```
 
 ---
 
-## 3. 运行（GPU 节点）
-
-对应 `container.sh run` 的关键参数：
-
-
-| `container.sh run`                    | HPC Singularity                                  |
-| ------------------------------------- | ------------------------------------------------ |
-| `--gpus ...`                          | Slurm `--gres=gpu:...` + `singularity exec --nv` |
-| `ACCEPT_EULA=Y` / `PRIVACY_CONSENT=Y` | 同样 `--env` 传入                                    |
-| `-v .:/workspace/project`             | `--bind <项目路径>:/workspace/project`               |
-| `--network=host --ipc=host`           | Singularity 默认                                   |
-| X11 / DISPLAY                         | HPC 训练用 `--headless`，不需要                         |
-
+## 3. HPC 运行（GPU 节点，仅 exec）
 
 ```bash
-# 申请 GPU 节点
 srun --partition=i64m1tga800u --gres=gpu:a800:1 \
      --cpus-per-task=8 --mem=64G --time=2:00:00 --pty bash
 
-# GPU 节点上
-module load singularity-ce-4.1.3
+module load apptainer-1.4.5
 
 HOME=/hpc2hdd/home/hwang721
 SIF=${HOME}/containers/sim51_lab232_hwang721.sif
 
-# 交互 shell（会触发项目 auto-install）
-singularity exec --nv \
+apptainer exec --nv \
   --bind ${HOME}:${HOME} \
   --bind ${HOME}/your_project:/workspace/project:rw \
   --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
   --env NVIDIA_DRIVER_CAPABILITIES=all \
   ${SIF} bash -i
-
-# 或直接跑命令
-singularity exec --nv \
-  --bind ${HOME}:${HOME} \
-  --bind ${HOME}/your_project:/workspace/project:rw \
-  --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
-  ${SIF} bash -lc "
-    cd /workspace/IsaacLab
-    ./isaaclab.sh -p scripts/tutorials/00_sim/create_empty.py --headless
-  "
 ```
 
-**sbatch 模板**（改 `your_project` 和 `CMD`）：
+**sbatch**（改 `your_project`、`CMD`）：
 
 ```bash
 #!/bin/bash
@@ -114,27 +97,25 @@ singularity exec --nv \
 #SBATCH --time=24:00:00
 #SBATCH --output=/hpc2hdd/home/hwang721/isaaclab/logs/slurm-%j.out
 
-module load singularity-ce-4.1.3
-
+module load apptainer-1.4.5
 HOME=/hpc2hdd/home/hwang721
 SIF=${HOME}/containers/sim51_lab232_hwang721.sif
 CMD="cd /workspace/IsaacLab && ./isaaclab.sh -p <your_script.py> --headless"
 
-singularity exec --nv \
+apptainer exec --nv \
   --bind ${HOME}:${HOME} \
   --bind ${HOME}/your_project:/workspace/project:rw \
   --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
   ${SIF} bash -lc "${CMD}"
 ```
 
-A40 分区：`i64m1tga40u` / `--gres=gpu:a40:1`。
+A40：`i64m1tga40u` / `--gres=gpu:a40:1`。
 
 ---
 
-## 备注
+## 注意
 
-- `singularity build` → 登录节点 `/usr/local/bin/singularity`；`singularity exec` → GPU 节点 `module load singularity-ce-4.1.3`
-- UID/GID 不对会导致写文件 Permission denied，需按 HPC 的 `id` 重新 `container.sh build` 再导出
-- 非交互 `bash -lc` 不会走 `.bashrc` 里的 auto-install，首次需 `bash -i` 进容器或手动 `./install_project.sh`
-- `.tar` + build 过程中 `.sif` 共存，约需 40G+ 磁盘；完成后可删 `.tar`
+- 已在 HPC 无 fakeroot 构建的旧 `.sif` 须丢弃，按 §2 在本机重做。
+- 本机 build 用户（如 `hz`）与 HPC uid 不同无妨；`.sif` 内是镜像里的 uid。
+- 项目依赖在挂载目录手动执行一次：`cd /workspace/project && ./install_project.sh`
 

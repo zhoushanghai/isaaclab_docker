@@ -1,0 +1,15 @@
+# Docker / Apptainer 导出物（体积大，勿提交）
+*.tar
+*.tar.gz
+*.sif
+
+# 环境变量与密钥
+.env
+.env.*
+
+# 编辑器与系统
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
