@@ -93,6 +93,8 @@ USER root
 ARG USER_NAME
 ARG USER_UID
 ARG USER_GID
+# install 阶段 /isaac-sim 的 owner/group 固定为 1001；不对 17GB 目录 chown，改由 supplementary group 读
+ARG ISAAC_BUILD_GID=1001
 RUN set -e && \
     # 仅当目标 UID 被「非 hz」占用时需先删，否则 usermod 会失败
     uid_user=$(getent passwd "${USER_UID}" | cut -d: -f1) && \
@@ -102,10 +104,14 @@ RUN set -e && \
     usermod -l "${USER_NAME}" hz 2>/dev/null || true && \
     groupmod -n "${USER_NAME}" hz 2>/dev/null || true && \
     usermod -d "/home/${USER_NAME}" -m "${USER_NAME}" && \
-    # 关键：usermod 只改 passwd/group 数字 ID，不会改已有文件的 owner。
-    # install 阶段文件属主仍是 1001，若 run 用户为 1002 则无法读 /isaac-sim（750）。
+    # groupmod 后 gid 1001 从 group 表消失，但 /isaac-sim 文件仍带 gid=1001；补回组并加入运行用户
+    (getent group "${ISAAC_BUILD_GID}" >/dev/null || groupadd -g "${ISAAC_BUILD_GID}" isaac_sim) && \
+    usermod -aG "$(getent group "${ISAAC_BUILD_GID}" | cut -d: -f1)" "${USER_NAME}" && \
+    # 只 chown 小目录；/isaac-sim 本体只读。Isaac Sim 运行时会写 kit/{cache,data,logs}，须归运行用户
+    mkdir -p "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
     chown -R "${USER_UID}:${USER_GID}" \
-        /home/${USER_NAME} /workspace "${ISAACSIM_PATH}" && \
+        /home/${USER_NAME} /workspace \
+        "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo 'source /workspace/IsaacLab/_isaac_sim/setup_conda_env.sh' >> /home/${USER_NAME}/.bashrc && \
     echo 'export ISAACLAB_PATH=/workspace/IsaacLab' >> /home/${USER_NAME}/.bashrc && \

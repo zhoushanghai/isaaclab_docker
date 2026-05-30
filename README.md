@@ -68,8 +68,7 @@ bash -c 'echo $DISPLAY'    # 应有值，如 localhost:10.0
 ## build 时指定用户（可选）
 
 **run 固定用本机当前用户**，不受下列变量影响。  
-Dockerfile 中 `--install` 固定用占位用户 **hz:1001**（便于 Docker 缓存）；`container.sh build` 会把本机 `whoami` / `id -u` / `id -g` 传入最后一层，并在 **usermod 后 chown `/isaac-sim`、`/workspace`、`/home`**，避免 UID 不一致时 Permission denied。  
-若遇到 `setup_conda_env.sh: Permission denied` 或找不到 `python.sh`，说明镜像是旧版 build 的，请重新 `./container.sh build`。  
+Dockerfile 中 `--install` 固定用占位用户 **hz:1001**（便于 Docker 缓存）；`container.sh build` 会把本机 `whoami` / `id -u` / `id -g` 传入最后一层：运行用户对齐本机 UID，**加入 isaac_sim(1001) 组读 `/isaac-sim`**，只对 `/home` + `/workspace` chown（快，且不碰挂载的 project）。  
 只有 **build** 可覆盖，用于给 HPC 等其它 UID 提前构建镜像（`--install` 走缓存，仅最后一层 usermod + chown）：
 
 ```bash
