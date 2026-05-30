@@ -77,6 +77,8 @@ run_container() {
         -e QT_X11_NO_MITSHM=1 \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         -v $HOME/.Xauthority:/home/${RUN_USER}/.Xauthority \
+        -v /etc/localtime:/etc/localtime:ro \
+        -v /etc/timezone:/etc/timezone:ro \
         -v .:/workspace/project \
         ${IMAGE_NAME}
 

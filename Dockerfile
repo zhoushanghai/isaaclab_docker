@@ -89,31 +89,20 @@ RUN ./isaaclab.sh --install
 
 USER root
 
-# ── 最后对齐 container.sh 传入的目标用户（默认同 hz:1001 则跳过 usermod）──
+# ── 对齐 container.sh 传入的目标用户（install 固定 hz:1001，此处直接覆盖）──
 ARG USER_NAME
 ARG USER_UID
 ARG USER_GID
 RUN set -e && \
-    BUILD_USER=hz BUILD_UID=1001 BUILD_GID=1001 && \
-    existing_user=$(getent passwd "${USER_UID}" | cut -d: -f1) && \
-    if [ -n "$existing_user" ] && [ "$existing_user" != "${BUILD_USER}" ]; then \
-        userdel -r "$existing_user" 2>/dev/null || true; \
-    fi && \
-    if [ "${USER_GID}" != "${BUILD_GID}" ]; then \
-        groupmod -g "${USER_GID}" "${BUILD_USER}"; \
-    fi && \
-    if [ "${USER_UID}" != "${BUILD_UID}" ]; then \
-        usermod -u "${USER_UID}" -g "${USER_GID}" "${BUILD_USER}"; \
-    elif [ "${USER_GID}" != "${BUILD_GID}" ]; then \
-        usermod -g "${USER_GID}" "${BUILD_USER}"; \
-    fi && \
-    if [ "${USER_NAME}" != "${BUILD_USER}" ]; then \
-        usermod -l "${USER_NAME}" "${BUILD_USER}" && \
-        groupmod -n "${USER_NAME}" "${BUILD_USER}" && \
-        usermod -d "/home/${USER_NAME}" -m "${USER_NAME}"; \
-    fi && \
-    grep -q "^${USER_NAME} ALL" /etc/sudoers 2>/dev/null || \
-        echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    # 仅当目标 UID 被「非 hz」占用时需先删，否则 usermod 会失败
+    uid_user=$(getent passwd "${USER_UID}" | cut -d: -f1) && \
+    [ -z "$uid_user" ] || [ "$uid_user" = "hz" ] || userdel -r "$uid_user" && \
+    groupmod -g "${USER_GID}" hz && \
+    usermod -u "${USER_UID}" -g "${USER_GID}" hz && \
+    usermod -l "${USER_NAME}" hz 2>/dev/null || true && \
+    groupmod -n "${USER_NAME}" hz 2>/dev/null || true && \
+    usermod -d "/home/${USER_NAME}" -m "${USER_NAME}" && \
+    echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo 'source /workspace/IsaacLab/_isaac_sim/setup_conda_env.sh' >> /home/${USER_NAME}/.bashrc && \
     echo 'export ISAACLAB_PATH=/workspace/IsaacLab' >> /home/${USER_NAME}/.bashrc && \
     echo "export PS1='\[\e[38;2;157;141;240m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '" >> /home/${USER_NAME}/.bashrc && \
