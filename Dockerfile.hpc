@@ -1,0 +1,89 @@
+# Isaac Lab Dockerfile - HPC 专用简化版 (使用 Root 运行)
+# 基于官方 Isaac Sim 5.1.0 基础镜像
+FROM nvcr.io/nvidia/isaac-sim:5.1.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV TERM=xterm
+
+ENV ISAACSIM_PATH="/isaac-sim"
+ENV ISAACSIM_PYTHON_EXE="${ISAACSIM_PATH}/python.sh"
+
+USER root
+
+# ── 1. 安装系统底层依赖 ──
+# 包含编译 C++ 扩展、渲染以及多媒体等必备的系统库
+RUN apt-get update && apt-get install -y \
+    cmake \
+    build-essential \
+    git \
+    libgl1 \
+    libgl1-mesa-dev \
+    libglu1-mesa \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libxt6 \
+    libxcursor1 \
+    libxinerama1 \
+    libxi6 \
+    libxrandr2 \
+    zenity \
+    vulkan-tools \
+    libvulkan1 \
+    mesa-vulkan-drivers \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── 2. 目标版本与编译参数 ──
+# 可在构建时通过 --build-arg 指定自定义的仓库地址与 Commit Hash
+ARG ISAACLAB_REPO="https://github.com/ISAAC-SIM/IsaacLab.git"
+ARG ISAACLAB_COMMIT="f4aa17f87e2e5db5484f0b5974918573e8918ce2"
+
+# ── 3. 克隆并检出源码 ──
+# 创建 /workspace 目录，并克隆指定的 Isaac Lab 仓库并检出目标 Commit
+RUN mkdir -p /workspace && \
+    git clone ${ISAACLAB_REPO} /workspace/isaaclab && \
+    cd /workspace/isaaclab && \
+    git checkout ${ISAACLAB_COMMIT}
+
+# 设置工作目录为 Isaac Lab 目录
+WORKDIR /workspace/isaaclab
+
+# ── 4. 软链接与核心依赖安装 ──
+# 关联已有的 Isaac Sim 并执行内置安装程序
+RUN ln -s ${ISAACSIM_PATH} _isaac_sim && \
+    ./isaaclab.sh --install
+
+# ── 5. 运行环境与工作目录配置 ──
+# 创建通用的项目挂载目录 /workspace/project 并且配置宿主机映射所需的 kit 缓存文件夹
+RUN mkdir -p /workspace/project \
+        "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
+    cat >> "/root/.bashrc" <<'BASHRC_EOF'
+source /workspace/isaaclab/_isaac_sim/setup_conda_env.sh
+export ISAACLAB_PATH=/workspace/isaaclab
+export PS1='\[\e[38;2;157;141;240m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '
+BASHRC_EOF
+
+# ── 6. Python/Pip 命令封装转发 ──
+# 转发全局 python/pip 命令以自动激活 conda 环境和环境变量
+RUN for cmd in python python3; do \
+        printf '%s\n' '#!/bin/bash' 'exec /workspace/isaaclab/isaaclab.sh -p "$@"' > /usr/local/bin/${cmd} && \
+        chmod +x /usr/local/bin/${cmd}; \
+    done && \
+    for cmd in pip pip3; do \
+        printf '%s\n' '#!/bin/bash' 'exec /workspace/isaaclab/isaaclab.sh -p -m pip "$@"' > /usr/local/bin/${cmd} && \
+        chmod +x /usr/local/bin/${cmd}; \
+    done && \
+    ln -sf /workspace/isaaclab/isaaclab.sh /usr/local/bin/isaaclab
+
+# 默认使用 root 运行（在 HPC Singularity 环境下会被自动映射为宿主机用户的 UID/GID）
+USER root
+
+# 默认进入 /workspace/project 挂载目录
+WORKDIR /workspace/project
+
+CMD ["/bin/bash"]
