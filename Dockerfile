@@ -1,5 +1,4 @@
 # Isaac Lab Dockerfile - 使用预构建二进制 + isaaclab.sh --install
-# 直接使用 container.sh 传入的目标用户，简洁直接
 # 参考: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html
 
 FROM nvcr.io/nvidia/isaac-sim:5.1.0
@@ -46,11 +45,12 @@ ARG USER_GID
 ARG ISAACLAB_REPO="https://github.com/ISAAC-SIM/IsaacLab.git"
 ARG ISAACLAB_COMMIT="f4aa17f87e2e5db5484f0b5974918573e8918ce2"
 
-# 创建目标用户
-RUN userdel -r isaac-sim 2>/dev/null || true && \
+# 创建目标用户，接管 /isaac-sim
+RUN userdel isaac-sim 2>/dev/null || true && \
     groupadd --gid ${USER_GID} ${USER_NAME} && \
     useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USER_NAME} && \
-    echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    chown -R ${USER_NAME}:${USER_NAME} ${ISAACSIM_PATH}
 
 # Isaac Lab 安装在 ~/IsaacLab
 RUN git clone ${ISAACLAB_REPO} /home/${USER_NAME}/IsaacLab && \
@@ -60,18 +60,14 @@ RUN git clone ${ISAACLAB_REPO} /home/${USER_NAME}/IsaacLab && \
 
 WORKDIR /home/${USER_NAME}/IsaacLab
 
-# 创建 Isaac Sim 符号链接 (关键步骤!)
-RUN ln -s ${ISAACSIM_PATH} _isaac_sim && chown -h ${USER_NAME}:${USER_NAME} _isaac_sim 2>/dev/null || chown ${USER_NAME}:${USER_NAME} _isaac_sim
-
-USER ${USER_NAME}
+# 创建 Isaac Sim 符号链接
+RUN ln -s ${ISAACSIM_PATH} _isaac_sim && \
+    chown -h ${USER_NAME}:${USER_NAME} _isaac_sim
 
 # 安装 Isaac Lab（耗时层）
 RUN ./isaaclab.sh --install
 
-USER root
-
-# ── 环境配置（让容器开箱即用）──
-# 创建运行时目录 & Isaac Sim kit 目录，改 owner，追加 .bashrc
+# ── 环境配置 ──
 RUN mkdir -p /home/${USER_NAME}/project \
         "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
     chown -R "${USER_UID}:${USER_GID}" \
@@ -82,7 +78,7 @@ export ISAACLAB_PATH=~/IsaacLab
 export PS1='\[\e[38;2;157;141;240m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '
 BASHRC_EOF
 
-# python/pip → isaaclab.sh 转发脚本；isaaclab → CLI 软链接
+# python/pip → isaaclab.sh -p 转发（含 conda 环境初始化）
 RUN for cmd in python python3; do \
         printf '%s\n' '#!/bin/bash' 'exec /home/'"${USER_NAME}"'/IsaacLab/isaaclab.sh -p "$@"' > /usr/local/bin/${cmd} && \
         chmod +x /usr/local/bin/${cmd}; \
