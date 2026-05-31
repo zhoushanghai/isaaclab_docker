@@ -5,12 +5,13 @@
 ```bash
 ./container.sh build                              # 构建镜像（只需一次）
 ./container.sh run                                # 启动容器（默认全部 GPU）
-docker exec -it isaaclab232_$(whoami) bash        # 进入容器
+docker exec -it isaaclab232_$(whoami) bash        # 进入容器（默认 ~/project）
 ```
 
 - 镜像名：`sim51_lab232_<用户名>`
 - 容器名：`isaaclab232_<用户名>`
-- 项目目录挂载到容器内 `/workspace/project`
+- 项目目录：在**你执行 `run` 时所在的目录**挂载到 `~/project`
+- Isaac Lab 安装在 `~/IsaacLab`（镜像内）
 - 项目依赖需自行在挂载目录执行 `./install_project.sh`（进容器后手动一次即可）
 
 ---
@@ -71,7 +72,7 @@ bash -c 'echo $DISPLAY'    # 应有值，如 localhost:10.0
 ## build 时指定用户（可选）
 
 **run 固定用本机当前用户**，不受下列变量影响。  
-Dockerfile 中 `--install` 固定用占位用户 **hz:1001**（便于 Docker 缓存）；`container.sh build` 会把本机 `whoami` / `id -u` / `id -g` 传入最后一层：运行用户对齐本机 UID，**加入 isaac_sim(1001) 组读 `/isaac-sim`**，只对 `/home` + `/workspace` chown（快，且不碰挂载的 project）。  
+Dockerfile 中 `--install` 固定用占位用户 **whz:1001**（便于 Docker 缓存）；`container.sh build` 会把本机 `whoami` / `id -u` / `id -g` 传入最后一层：运行用户对齐本机 UID，**加入 isaac_sim(1001) 组读 `/isaac-sim`**，Isaac Lab 与项目均在 `~/` 下。  
 只有 **build** 可覆盖，用于给 HPC 等其它 UID 提前构建镜像（`--install` 走缓存，仅最后一层 usermod + chown）：
 
 ```bash

@@ -6,8 +6,8 @@ HPC 不能 `docker run`，需 **Apptainer `.sif`**。登录节点无 `/etc/subui
 | 项目        | 值                        |
 | --------- | ------------------------ |
 | 镜像名       | `sim51_lab232_<用户名>`     |
-| Isaac Lab | `/workspace/IsaacLab`    |
-| 项目挂载      | `/workspace/project`     |
+| Isaac Lab | `$HOME/IsaacLab`         |
+| 项目挂载      | `$HOME/project`          |
 | 容器用户      | build 时写入，须与 HPC `id` 一致 |
 
 
@@ -79,7 +79,7 @@ SIF=${HOME}/containers/sim51_lab232_hwang721.sif
 
 apptainer exec --nv \
   --bind ${HOME}:${HOME} \
-  --bind ${HOME}/your_project:/workspace/project:rw \
+  --bind ${HOME}/your_project:${HOME}/project:rw \
   --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
   --env NVIDIA_DRIVER_CAPABILITIES=all \
   ${SIF} bash -i
@@ -100,11 +100,11 @@ apptainer exec --nv \
 module load apptainer-1.4.5
 HOME=/hpc2hdd/home/hwang721
 SIF=${HOME}/containers/sim51_lab232_hwang721.sif
-CMD="cd /workspace/IsaacLab && ./isaaclab.sh -p <your_script.py> --headless"
+CMD="cd ${HOME}/IsaacLab && ./isaaclab.sh -p <your_script.py> --headless"
 
 apptainer exec --nv \
   --bind ${HOME}:${HOME} \
-  --bind ${HOME}/your_project:/workspace/project:rw \
+  --bind ${HOME}/your_project:${HOME}/project:rw \
   --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
   ${SIF} bash -lc "${CMD}"
 ```
@@ -117,5 +117,6 @@ A40：`i64m1tga40u` / `--gres=gpu:a40:1`。
 
 - 已在 HPC 无 fakeroot 构建的旧 `.sif` 须丢弃，按 §2 在本机重做。
 - 本机 build 用户（如 `hz`）与 HPC uid 不同无妨；`.sif` 内是镜像里的 uid。
-- 项目依赖在挂载目录手动执行一次：`cd /workspace/project && ./install_project.sh`
+- HPC 用 `CONTAINER_USER=hwang721` build 时，install 在 `/home/whz/IsaacLab` 后会 `usermod` 迁到 `/home/hwang721/IsaacLab`；若训练报路径错误，需对该用户完整 rebuild（勿复用 whz install 缓存层）。
+- 项目依赖在挂载目录手动执行一次：`cd ~/project && ./install_project.sh`
 

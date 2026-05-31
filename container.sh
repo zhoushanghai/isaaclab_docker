@@ -66,6 +66,7 @@ run_container() {
 
     echo "Starting container as user: ${RUN_USER}"
     echo "Container name: ${container_name}"
+    echo "Project mount: /home/${RUN_USER}/project  <- $(pwd)"
     echo "Using DISPLAY=${display}"
 
     docker run --name "${container_name}" --runtime=nvidia --entrypoint bash -dit \
@@ -81,7 +82,7 @@ run_container() {
         -v $HOME/.Xauthority:/home/${RUN_USER}/.Xauthority \
         -v /etc/localtime:/etc/localtime:ro \
         -v /etc/timezone:/etc/timezone:ro \
-        -v .:/workspace/project \
+        -v "$(pwd):/home/${RUN_USER}/project" \
         ${IMAGE_NAME}
 
     # 打印提示信息，方便用户直接复制进入容器的命令
@@ -93,35 +94,40 @@ run_container() {
     echo ""
 }
 
+# 解析 run 参数（case 分支里不能用 local）
+parse_run_args() {
+    RUN_GPU="all"
+    RUN_CONTAINER_NAME="${CONTAINER_NAME}"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --gpu)
+                [ -n "${2}" ] || { echo "ERROR: --gpu requires a value"; exit 1; }
+                RUN_GPU="$2"
+                shift 2
+                ;;
+            --name)
+                [ -n "${2}" ] || { echo "ERROR: --name requires a value"; exit 1; }
+                RUN_CONTAINER_NAME="$2"
+                shift 2
+                ;;
+            *)
+                echo "ERROR: unknown option: $1"
+                echo "Usage: $0 run [--name NAME] [--gpu ID]"
+                exit 1
+                ;;
+        esac
+    done
+}
+
 # 解析命令行参数
 case "${1}" in
     build)
         build_image
         ;;
     run)
-        local gpu="all"
-        local container_name="${CONTAINER_NAME}"
         shift
-        while [ $# -gt 0 ]; do
-            case "$1" in
-                --gpu)
-                    [ -n "${2}" ] || { echo "ERROR: --gpu requires a value"; exit 1; }
-                    gpu="$2"
-                    shift 2
-                    ;;
-                --name)
-                    [ -n "${2}" ] || { echo "ERROR: --name requires a value"; exit 1; }
-                    container_name="$2"
-                    shift 2
-                    ;;
-                *)
-                    echo "ERROR: unknown option: $1"
-                    echo "Usage: $0 run [--name NAME] [--gpu ID]"
-                    exit 1
-                    ;;
-            esac
-        done
-        run_container "${gpu}" "${container_name}"
+        parse_run_args "$@"
+        run_container "${RUN_GPU}" "${RUN_CONTAINER_NAME}"
         ;;
     *)
         echo "Usage: $0 {build|run [--name NAME] [--gpu ID]}"
