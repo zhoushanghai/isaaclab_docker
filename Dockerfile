@@ -67,6 +67,9 @@ RUN ln -s ${ISAACSIM_PATH} _isaac_sim && \
 # 安装 Isaac Lab（耗时层）
 RUN ./isaaclab.sh --install
 
+# install 过程可能以 root 在 /isaac-sim 内创建文件，再次确保归属本地用户
+RUN chown -R ${USER_NAME}:${USER_NAME} ${ISAACSIM_PATH}
+
 # ── 环境配置 ──
 RUN mkdir -p /home/${USER_NAME}/project \
         "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
