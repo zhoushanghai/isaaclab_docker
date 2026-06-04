@@ -45,12 +45,13 @@ ARG USER_GID
 ARG ISAACLAB_REPO="https://github.com/ISAAC-SIM/IsaacLab.git"
 ARG ISAACLAB_COMMIT="f4aa17f87e2e5db5484f0b5974918573e8918ce2"
 
-# 创建目标用户，接管 /isaac-sim
+# 创建目标用户并关联组权限
 RUN userdel isaac-sim 2>/dev/null || true && \
     groupadd --gid ${USER_GID} ${USER_NAME} && \
     useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USER_NAME} && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    chown -R ${USER_NAME}:${USER_NAME} ${ISAACSIM_PATH}
+    (getent group 1234 >/dev/null || groupadd -g 1234 isaac-sim-base) && \
+    usermod -aG "$(getent group 1234 | cut -d: -f1)" "${USER_NAME}"
 
 # Isaac Lab 安装在 ~/IsaacLab
 RUN git clone ${ISAACLAB_REPO} /home/${USER_NAME}/IsaacLab && \
@@ -65,16 +66,14 @@ RUN ln -s ${ISAACSIM_PATH} _isaac_sim && \
     chown -h ${USER_NAME}:${USER_NAME} _isaac_sim
 
 # 安装 Isaac Lab（耗时层）
-RUN ./isaaclab.sh --install
-
-# install 过程可能以 root 在 /isaac-sim 内创建文件，再次确保归属本地用户
-RUN chown -R ${USER_NAME}:${USER_NAME} ${ISAACSIM_PATH}
+RUN ./isaaclab.sh --install && \
+    chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/IsaacLab
 
 # ── 环境配置 ──
 RUN mkdir -p /home/${USER_NAME}/project \
-        "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
+    "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
     chown -R "${USER_UID}:${USER_GID}" \
-        "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
+    "${ISAACSIM_PATH}/kit/cache" "${ISAACSIM_PATH}/kit/data" "${ISAACSIM_PATH}/kit/logs" && \
     cat >> "/home/${USER_NAME}/.bashrc" <<'BASHRC_EOF'
 source ~/IsaacLab/_isaac_sim/setup_conda_env.sh
 export ISAACLAB_PATH=~/IsaacLab
@@ -83,12 +82,12 @@ BASHRC_EOF
 
 # python/pip → isaaclab.sh -p 转发（含 conda 环境初始化）
 RUN for cmd in python python3; do \
-        printf '%s\n' '#!/bin/bash' 'exec /home/'"${USER_NAME}"'/IsaacLab/isaaclab.sh -p "$@"' > /usr/local/bin/${cmd} && \
-        chmod +x /usr/local/bin/${cmd}; \
+    printf '%s\n' '#!/bin/bash' 'exec /home/'"${USER_NAME}"'/IsaacLab/isaaclab.sh -p "$@"' > /usr/local/bin/${cmd} && \
+    chmod +x /usr/local/bin/${cmd}; \
     done && \
     for cmd in pip pip3; do \
-        printf '%s\n' '#!/bin/bash' 'exec /home/'"${USER_NAME}"'/IsaacLab/isaaclab.sh -p -m pip "$@"' > /usr/local/bin/${cmd} && \
-        chmod +x /usr/local/bin/${cmd}; \
+    printf '%s\n' '#!/bin/bash' 'exec /home/'"${USER_NAME}"'/IsaacLab/isaaclab.sh -p -m pip "$@"' > /usr/local/bin/${cmd} && \
+    chmod +x /usr/local/bin/${cmd}; \
     done && \
     ln -sf /home/${USER_NAME}/IsaacLab/isaaclab.sh /usr/local/bin/isaaclab
 

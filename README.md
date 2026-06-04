@@ -72,8 +72,9 @@ bash -c 'echo $DISPLAY'    # 应有值，如 localhost:10.0
 ## build 时指定用户（可选）
 
 **run 固定用本机当前用户**，不受下列变量影响。  
-Dockerfile 中 `--install` 固定用占位用户 **whz:1001**（便于 Docker 缓存）；`container.sh build` 会把本机 `whoami` / `id -u` / `id -g` 传入最后一层：运行用户对齐本机 UID，**加入 isaac_sim(1001) 组读 `/isaac-sim`**，Isaac Lab 与项目均在 `~/` 下。  
-只有 **build** 可覆盖，用于给 HPC 等其它 UID 提前构建镜像（`--install` 走缓存，仅最后一层 usermod + chown）：
+Dockerfile 构建时会把本机 `whoami` / `id -u` / `id -g` 传入镜像并创建对应的运行用户。为了保持极速构建并极大减小镜像层体积（避免 `chown -R` 触发 Docker OverlayFS 的文件拷贝），`/isaac-sim` 整体对运行用户保持只读，仅在构建的最后对运行时必须写入的三个缓存/日志子目录（`kit/cache`、`kit/data`、`kit/logs`）执行细粒度的 `chown`。  
+只有 **build** 可覆盖，用于给 HPC 等其它 UID 提前构建镜像：
+
 
 ```bash
 # 先在目标机器上 id，再把 uid/gid 填进来
