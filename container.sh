@@ -69,6 +69,15 @@ run_container() {
     echo "Project mount: /home/${RUN_USER}/project  <- $(pwd)"
     echo "Using DISPLAY=${display}"
 
+    # 配置 wandb 登录态挂载（若宿主机存在则自动挂载，避免容器内重新登录）
+    local wandb_mounts=()
+    if [ -f "$HOME/.netrc" ]; then
+        wandb_mounts+=("-v" "$HOME/.netrc:/home/${RUN_USER}/.netrc:ro")
+    fi
+    if [ -d "$HOME/.config/wandb" ]; then
+        wandb_mounts+=("-v" "$HOME/.config/wandb:/home/${RUN_USER}/.config/wandb")
+    fi
+
     docker run --name "${container_name}" --runtime=nvidia --entrypoint bash -dit \
         --gpus "${docker_gpus}" \
         -e "ACCEPT_EULA=Y" --network=host --ipc=host \
@@ -78,6 +87,8 @@ run_container() {
         -e DISPLAY="${display}" \
         -e XAUTHORITY=/home/${RUN_USER}/.Xauthority \
         -e QT_X11_NO_MITSHM=1 \
+        -e WANDB_API_KEY="${WANDB_API_KEY}" \
+        "${wandb_mounts[@]}" \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         -v $HOME/.Xauthority:/home/${RUN_USER}/.Xauthority \
         -v /etc/localtime:/etc/localtime:ro \

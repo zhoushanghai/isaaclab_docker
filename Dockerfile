@@ -96,4 +96,7 @@ USER ${USER_NAME}
 # 默认进入 ~/project（run 时挂载）；Isaac Lab 在 ~/IsaacLab
 WORKDIR /home/${USER_NAME}/project
 
+# 安装常用工具 wandb
+RUN pip install wandb
+
 CMD ["/bin/bash"]
