@@ -3,6 +3,11 @@
 *.tar.gz
 *.sif
 
+# HPC 运行时数据（在 hpc/ 下，勿提交）
+hpc/project/
+hpc/sim51_lab232_hpc_sandbox/
+hpc/sim51_lab232_hpc_docker.tar
+
 # 环境变量与密钥
 .env
 .env.*
@@ -13,6 +18,3 @@
 *.swp
 *~
 .DS_Store
-sim51_lab232_hpc_sandbox/
-
-sim51_lab232_hpc_sandbox

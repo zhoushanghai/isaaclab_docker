@@ -19,18 +19,22 @@
 #   --job-name NAME      作业名（默认 isaaclab-sandbox）
 #   --module NAME        Singularity 模块名（默认 singularity-ce-4.1.3）
 #   --args '...'         传给 Python 脚本的额外参数
+#   --cmd '...'          容器内完整运行命令（与 --script 二选一）
 #
 # 环境变量快捷方式:
 #   SANDBOX_PATH, PROJECT_PATH, CACHE_PATH, PYTHON_SCRIPT
 # ==============================================================================
 set -e
 
-# ── 默认值 ──
-# 沙盒物理路径，更新为在 ~/isaaclab_docker 下的解压路径
-SANDBOX_PATH="${SANDBOX_PATH:-/hpc2hdd/home/hwang721/isaaclab_docker/sim51_lab232_hpc_sandbox}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=env.sh
+source "${SCRIPT_DIR}/env.sh"
+
+# ── 默认值（按项目目录名隔离 sandbox / cache，均在 SSD jhspoolers 下）──
+SANDBOX_PATH="${SANDBOX_PATH:-$(isaaclab_sandbox "$(basename "${PROJECT_PATH}")")}"
 PROJECT_PATH="${PROJECT_PATH:-$(pwd)}"
-# 缓存持久化路径，更新为 /hpc2hdd/home/hwang721/isaaclab_cache
-CACHE_PATH="${CACHE_PATH:-/hpc2hdd/home/hwang721/isaaclab_cache}"
+# 默认按项目目录名隔离（路径：hpc/project/<项目名>/）
+CACHE_PATH="${CACHE_PATH:-$(isaaclab_cache "$(basename "${PROJECT_PATH}")")}"
 PYTHON_SCRIPT="${PYTHON_SCRIPT:-scripts/reinforcement_learning/rsl_rl/train.py}"
 
 PARTITION="i64m1tga800u"
@@ -41,6 +45,7 @@ TIME="24:00:00"
 JOB_NAME="isaaclab-sandbox"
 SINGULARITY_MODULE="singularity-ce-4.1.3"
 PYTHON_ARGS=""
+RUN_CMD=""
 
 # ── 解析参数 ──
 while [ $# -gt 0 ]; do
@@ -57,6 +62,7 @@ while [ $# -gt 0 ]; do
         --job-name)  JOB_NAME="$2";       shift 2 ;;
         --module)    SINGULARITY_MODULE="$2"; shift 2 ;;
         --args)      PYTHON_ARGS="$2";    shift 2 ;;
+        --cmd)       RUN_CMD="$2";        shift 2 ;;
         -h|--help)
             echo "用法: $0 [选项]"
             echo ""
@@ -72,11 +78,12 @@ while [ $# -gt 0 ]; do
             echo "  --job-name NAME    作业名（默认 ${JOB_NAME}）"
             echo "  --module NAME      Singularity 模块（默认 ${SINGULARITY_MODULE}）"
             echo "  --args '...'       传给 Python 脚本的额外参数"
+            echo "  --cmd '...'        容器内完整运行命令（替代 --script）"
             echo ""
             echo "环境变量: SANDBOX_PATH, PROJECT_PATH, CACHE_PATH, PYTHON_SCRIPT"
             echo ""
             echo "示例:"
-            echo "  cd ~/ws/proprioception"
+            echo "  cd ~/porject/AFP"
             echo "  $0 --script scripts/rsl_rl/train.py --args '--headless --num_envs 4096'"
             exit 0
             ;;
@@ -96,15 +103,19 @@ if [ ! -f "${RUN_SANDBOX}" ]; then
     exit 1
 fi
 
-# 组装完整 Python 命令
-FULL_CMD="cd /workspace/project && pip install -e . 2>/dev/null || true; python ${PYTHON_SCRIPT} ${PYTHON_ARGS}"
+# 组装容器内运行命令
+if [ -n "${RUN_CMD}" ]; then
+    FULL_CMD="cd /workspace/project && pip install --user -e . 2>/dev/null || true; ${RUN_CMD}"
+else
+    FULL_CMD="cd /workspace/project && pip install --user -e . 2>/dev/null || true; python ${PYTHON_SCRIPT} ${PYTHON_ARGS}"
+fi
 
 echo "=============================================="
 echo " 提交 Isaac Lab Sandbox 作业"
 echo "   sandbox  : ${SANDBOX_PATH}"
 echo "   项目     : ${PROJECT_PATH}"
 echo "   缓存     : ${CACHE_PATH}"
-echo "   Python   : ${PYTHON_SCRIPT} ${PYTHON_ARGS}"
+echo "   Python   : ${RUN_CMD:-${PYTHON_SCRIPT} ${PYTHON_ARGS}}"
 echo "   分区     : ${PARTITION} / GPU=${GPU} / CPUs=${CPUS} / mem=${MEM}"
 echo "=============================================="
 

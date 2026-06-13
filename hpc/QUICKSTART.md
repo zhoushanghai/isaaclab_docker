@@ -1,181 +1,155 @@
-# HPC 快速使用说明（Sandbox 方案）
+# HPC 快速使用说明
 
-> 实测环境：HPC 二期 + Singularity + AFP 项目（`hwang721`）
+> 入口脚本：仓库根目录 [`sandbox.sh`](../sandbox.sh)
 
-## 1. 目录说明
+## 0. 目录约定
+
+**容器相关放 SSD 仓库 `hpc/`；项目代码放 `~/porject/<项目名>/`。**
+
+```
+isaaclab_docker/
+├── sandbox.sh                        # 管理入口（可拷到 ~/bin）
+└── hpc/
+    ├── sim51_lab232_hpc_sandbox.tar  # sandbox 模板（全项目共用一份）
+    ├── env.sh
+    ├── run_sandbox.sh
+    ├── submit_slurm.sh
+    ├── pack_sandbox.sh               # 本地重打镜像时用
+    └── project/                      # 各项目容器数据（gitignore）
+        └── AFP/
+            ├── sim51_lab232_hpc_sandbox/   # 容器系统环境
+            ├── home/                     # 容器 /root（pip、用户配置）
+            └── cache/                    # 运行时缓存
+
+~/porject/AFP/                        # 项目代码（仓库外）
+```
 
 | 用途 | 路径 |
 |------|------|
-| Sandbox 压缩包 | `~/isaaclab_docker/hpc/sim51_lab232_hpc_sandbox.tar` |
-| Sandbox 解压目录 | `~/isaaclab_docker/hpc/sim51_lab232_hpc_sandbox` |
-| 项目代码（AFP） | `~/porject/AFP` |
-| pip / 用户配置 | `~/container_homes/AFP` |
-| 运行时缓存 | `~/isaaclab_cache` |
+| 管理入口 | `.../isaaclab_docker/sandbox.sh` |
+| Sandbox 模板 | `.../hpc/sim51_lab232_hpc_sandbox.tar` |
+| 项目容器数据 | `.../hpc/project/<项目名>/` |
+| 项目代码 | `~/porject/<项目名>/` |
 
-**挂载关系：**
+**挂载关系（以 AFP 为例）：**
 
 ```
-porject/AFP          →  /workspace/project   （代码）
-container_homes/AFP  →  /root               （pip install --user 持久化）
-isaaclab_cache       →  $TMPDIR 缓存        （加速 Shader 编译）
-```
-
----
-
-## 2. 一次性准备
-
-```bash
-# 解压 sandbox（只需一次）
-cd ~/isaaclab_docker/hpc
-tar -xf sim51_lab232_hpc_sandbox.tar --checkpoint=1000 --checkpoint-action=dot
-
-# --writable 模式必须的挂载锚点
-mkdir -p sim51_lab232_hpc_sandbox/hpc2hdd
-
-# 项目目录（每个项目一次）
-mkdir -p ~/container_homes/AFP/tmp
-mkdir -p ~/isaaclab_cache
+~/porject/AFP/                              →  /workspace/project  （代码）
+project/AFP/sim51_lab232_hpc_sandbox/       →  容器根文件系统
+project/AFP/home/                           →  /root               （pip --user）
+project/AFP/cache/                          →  Isaac Sim 缓存      （加速启动）
 ```
 
 ---
 
-## 3. 交互式使用（调试）
-
-### 3.1 申请 GPU 节点
+## 1. 一次性准备
 
 ```bash
-# 快速调试（30 分钟）
-srun -p debug -n 8 --mem=32G --gres=gpu:1 --time=00:30:00 --pty bash
+# 确保 hpc/sim51_lab232_hpc_sandbox.tar 已存在（本地 pack_sandbox.sh 打包后 rsync 一次）
+
+# 初始化项目（每个新项目执行一次）
+/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh init AFP
+```
+
+> 新开项目把 `AFP` 换成项目名即可。tar 全项目共用，不用重复上传。
+
+---
+
+## 2. 交互式使用（调试）
+
+### 2.1 申请 GPU 节点
+
+```bash
+# 快速调试
+srun -p debug -n 8 --mem=32G --gres=gpu:1 --time=01:30:00 --pty bash
 
 # 正式训练
 srun -p i64m1tga800u -n 16 --mem=64G --gres=gpu:2 --time=04:00:00 --pty bash
 ```
 
-> 参数之间必须有空格，例如 `--gres=gpu:2 --time=01:00:00`，不能写成 `gpu:2--time`。
-
-### 3.2 查 GPU 节点空闲
-
-```bash
-for n in $(sinfo -p i64m1tga40u,i64m1tga800u -h -N -o "%N"); do
-  info=$(scontrol show node $n | grep -E "CfgTRES=|AllocTRES=")
-  total=$(echo "$info" | grep CfgTRES | sed -n 's/.*gres\/gpu=\([0-9]*\).*/\1/p')
-  used=$(echo "$info" | grep AllocTRES | sed -n 's/.*gres\/gpu=\([0-9]*\).*/\1/p')
-  used=${used:-0}; echo "$n  GPU空闲=$((total-used))/$total"
-done
-```
-
-### 3.3 启动容器
+### 2.2 启动容器
 
 ```bash
 module load singularity-ce-4.1.3
 export WANDB_API_KEY="你的API密钥"   # 使用 wandb 时
 
-CACHE_PERSIST=~/isaaclab_cache
-CACHE_TMP="${TMPDIR}/docker-isaac-sim"
-mkdir -p "${CACHE_TMP}"/{cache/{kit,ov,pip,glcache,computecache},logs,data,documents}
-if [ -n "$(ls -A "${CACHE_PERSIST}" 2>/dev/null)" ]; then
-  cp -r "${CACHE_PERSIST}"/* "${CACHE_TMP}"/
-fi
-
-singularity exec --nv --writable \
-  --bind ~/container_homes/AFP/tmp:/tmp \
-  --bind ~/container_homes/AFP:/root:rw \
-  --bind ~/porject/AFP:/workspace/project:rw \
-  --bind "${CACHE_TMP}/cache/kit:/isaac-sim/kit/cache:rw" \
-  --bind "${CACHE_TMP}/cache/ov:/root/.cache/ov:rw" \
-  --bind "${CACHE_TMP}/cache/pip:/root/.cache/pip:rw" \
-  --bind "${CACHE_TMP}/cache/glcache:/root/.cache/nvidia/GLCache:rw" \
-  --bind "${CACHE_TMP}/cache/computecache:/root/.nv/ComputeCache:rw" \
-  --bind "${CACHE_TMP}/logs:/root/.nvidia-omniverse/logs:rw" \
-  --bind "${CACHE_TMP}/data:/root/.local/share/ov/data:rw" \
-  --bind "${CACHE_TMP}/documents:/root/Documents:rw" \
-  --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
-  --env NVIDIA_DRIVER_CAPABILITIES=all \
-  --env WANDB_API_KEY="${WANDB_API_KEY}" \
-  ~/isaaclab_docker/hpc/sim51_lab232_hpc_sandbox bash -i
+/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh shell AFP
 ```
 
-看到 `Singularity>` 提示符表示已进入容器。
-
-### 3.4 容器内训练
+### 2.3 容器内训练
 
 ```bash
 cd /workspace/project
-pip install --user -e .    # 首次需要
+pip install --user -e .    # 首次需要；写入 project/AFP/home/
 
 python scripts/rsl_rl/train.py \
   --task=Tracking-Flat-G1-v0 \
-  --motion_file datasets/omniretarget/climb_00_z_scale_1.0_compact.npz \
   --num_envs 512 \
-  --logger wandb \
-  --log_project_name wby_force_prior \
-  --run_name train4data \
-  --headless
+  --headless \
+  --logger wandb
 ```
 
-### 3.5 退出并保存缓存
+### 2.4 退出
 
 ```bash
-exit
-rsync -azP "${CACHE_TMP}/" "${CACHE_PERSIST}/"
+exit    # 自动回写 cache/
 ```
 
 ---
 
-## 4. 换项目
+## 3. 后台提交（长作业）
 
-只需改 `container_homes/<项目名>` 和 `porject/<项目名>` 两处挂载，**不用重建 sandbox**。
-
-```bash
-mkdir -p ~/container_homes/my_proj/tmp
-# 启动时替换 bind 路径即可
-```
-
----
-
-## 5. 后台提交（长作业）
+在登录节点执行，无需先 `srun`：
 
 ```bash
-cd ~/porject/AFP
-
-./submit_slurm.sh \
-  --sandbox ~/isaaclab_docker/hpc/sim51_lab232_hpc_sandbox \
-  --project ~/porject/AFP \
-  --cache ~/isaaclab_cache \
-  --partition i64m1tga800u \
-  --gpu a800:2 \
+/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh submit AFP \
   --script scripts/rsl_rl/train.py \
-  --args "--task Tracking-Flat-G1-v0 --num_envs 4096 --headless --logger wandb"
+  --args '--headless --num_envs 4096'
+
+# 或直接写完整命令
+/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh submit AFP \
+  --cmd 'python scripts/rsl_rl/train.py --headless'
 ```
 
----
-
-## 6. 本地重新打包（有 Docker 的机器）
+可选参数：`--partition` `--gpu` `--cpus` `--mem` `--time`
 
 ```bash
-cd isaaclab_docker/hpc
-./pack_sandbox.sh
-rsync -avP sim51_lab232_hpc_sandbox.tar hwang721@hpc:~/isaaclab_docker/hpc/
+squeue -u $USER                              # 查看状态
+tail -f ~/porject/AFP/logs/slurm-<id>.out   # 查看日志
 ```
 
 ---
 
-## 7. 常见问题
+## 4. 常用命令
+
+```bash
+sandbox.sh info AFP              # 查看路径
+sandbox.sh init my_proj          # 新项目
+sandbox.sh reset-sandbox AFP     # 从 tar 重置 sandbox（不动 home/cache/代码）
+```
+
+`sandbox.sh` 可拷到任意目录（如 `~/bin/`），默认指向 SSD 上的 `isaaclab_docker` 仓库。
+
+---
+
+## 5. 本地重新打包（有 Docker 的机器）
+
+```bash
+cd /hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/hpc
+./pack_sandbox.sh
+rsync -avP sim51_lab232_hpc_sandbox.tar hpc:/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/hpc/
+```
+
+更新 tar 后：`sandbox.sh reset-sandbox <项目名>`，pip/代码/cache 不受影响。
+
+---
+
+## 6. 常见问题
 
 | 问题 | 解决 |
 |------|------|
-| `destination /hpc2hdd doesn't exist` | `mkdir -p .../sim51_lab232_hpc_sandbox/hpc2hdd` |
-| `cp: cannot stat isaaclab_cache/*` | 首次无缓存，正常，跳过即可 |
+| `destination /hpc2hdd doesn't exist` | `sandbox.sh init <项目名>`（自动创建 hpc2hdd 锚点） |
+| sandbox 不存在 | `sandbox.sh init <项目名>` |
 | `wandb: user is not logged in` | `export WANDB_API_KEY=...` |
-| `Invalid TRES specification` | srun 参数少空格 |
-| sandbox 被改脏 | `rm -rf sim51_lab232_hpc_sandbox && tar -xf sim51_lab232_hpc_sandbox.tar` |
-
----
-
-## 8. 相关文档
-
-- [HPC_root.md](./HPC_root.md) — 方案总览
-- [custom_sandbox.md](./custom_sandbox.md) — 沙盒方案详细设计
-- [pack_sandbox.sh](./pack_sandbox.sh) — 本地打包脚本
-- [run_sandbox.sh](./run_sandbox.sh) — 计算节点运行脚本
-- [submit_slurm.sh](./submit_slurm.sh) — Slurm 提交脚本
+| sandbox 被改脏 | `sandbox.sh reset-sandbox <项目名>` |
+| 项目之间互相影响 | 各项目独立 `hpc/project/<名>/`，完全隔离 |
