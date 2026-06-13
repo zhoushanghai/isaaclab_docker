@@ -2,10 +2,10 @@
 # ==============================================================================
 # run_sandbox.sh
 # 在 HPC 计算节点上运行 sandbox 容器。
-# 负责：缓存 → $TMPDIR → singularity exec --writable → 缓存回写
+# cache 直接 bind 到 hpc2ssd project/<名>/cache/（不经 TMPDIR）
 #
 # 用法（由 submit_slurm.sh 自动调用）:
-#   run_sandbox.sh <sandbox路径> <项目路径> <缓存持久路径> <python命令...>
+#   run_sandbox.sh <sandbox路径> <项目路径> <缓存路径> <python命令...>
 # ==============================================================================
 set -e
 
@@ -23,6 +23,7 @@ PYTHON_CMD="$*"
 PROJECT_NAME="$(basename "${PROJECT_PATH}")"
 CONTAINER_HOME="${CONTAINER_HOME:-$(isaaclab_container_home "${PROJECT_NAME}")}"
 mkdir -p "${CONTAINER_HOME}/tmp"
+isaaclab_ensure_cache_layout "${PROJECT_NAME}"
 
 if [ ! -d "${SANDBOX_PATH}" ]; then
     echo "ERROR: sandbox 不存在: ${SANDBOX_PATH}"
@@ -35,45 +36,22 @@ echo " run_sandbox.sh"
 echo "   sandbox  : ${SANDBOX_PATH}"
 echo "   项目     : ${PROJECT_PATH}"
 echo "   home     : ${CONTAINER_HOME}"
-echo "   缓存     : ${CACHE_PERSIST}"
+echo "   缓存     : ${CACHE_PERSIST}  (SSD 直接挂载)"
 echo "   Python   : ${PYTHON_CMD}"
-echo "   TMPDIR   : ${TMPDIR}"
 echo "=============================================="
 
-# ── 1. 初始化 $TMPDIR 缓存目录 ──
-CACHE_TMP="${TMPDIR}/docker-isaac-sim"
-mkdir -p "${CACHE_TMP}/cache/kit"
-mkdir -p "${CACHE_TMP}/cache/ov"
-mkdir -p "${CACHE_TMP}/cache/pip"
-mkdir -p "${CACHE_TMP}/cache/glcache"
-mkdir -p "${CACHE_TMP}/cache/computecache"
-mkdir -p "${CACHE_TMP}/logs"
-mkdir -p "${CACHE_TMP}/data"
-mkdir -p "${CACHE_TMP}/documents"
-echo "[缓存] TMPDIR 目录已创建"
-
-# ── 2. 从持久存储拷贝缓存（如果存在） ──
-if [ -d "${CACHE_PERSIST}" ] && [ "$(ls -A ${CACHE_PERSIST} 2>/dev/null)" ]; then
-    echo "[缓存] 从持久存储拷贝: ${CACHE_PERSIST} → ${CACHE_TMP}"
-    cp -r "${CACHE_PERSIST}/"* "${CACHE_TMP}/"
-    echo "[缓存] 拷贝完成"
-else
-    echo "[缓存] 持久缓存为空或不存在，跳过拷贝"
-fi
-
-# ── 3. 运行 singularity sandbox（--writable） ──
 echo "[运行] 启动 singularity sandbox..."
 singularity exec --nv --writable \
     --bind "${CONTAINER_HOME}/tmp:/tmp" \
     --bind "${CONTAINER_HOME}:/root:rw" \
-    --bind "${CACHE_TMP}/cache/kit:/isaac-sim/kit/cache:rw" \
-    --bind "${CACHE_TMP}/cache/ov:/root/.cache/ov:rw" \
-    --bind "${CACHE_TMP}/cache/pip:/root/.cache/pip:rw" \
-    --bind "${CACHE_TMP}/cache/glcache:/root/.cache/nvidia/GLCache:rw" \
-    --bind "${CACHE_TMP}/cache/computecache:/root/.nv/ComputeCache:rw" \
-    --bind "${CACHE_TMP}/logs:/root/.nvidia-omniverse/logs:rw" \
-    --bind "${CACHE_TMP}/data:/root/.local/share/ov/data:rw" \
-    --bind "${CACHE_TMP}/documents:/root/Documents:rw" \
+    --bind "${CACHE_PERSIST}/cache/kit:/isaac-sim/kit/cache:rw" \
+    --bind "${CACHE_PERSIST}/cache/ov:/root/.cache/ov:rw" \
+    --bind "${CACHE_PERSIST}/cache/pip:/root/.cache/pip:rw" \
+    --bind "${CACHE_PERSIST}/cache/glcache:/root/.cache/nvidia/GLCache:rw" \
+    --bind "${CACHE_PERSIST}/cache/computecache:/root/.nv/ComputeCache:rw" \
+    --bind "${CACHE_PERSIST}/logs:/root/.nvidia-omniverse/logs:rw" \
+    --bind "${CACHE_PERSIST}/data:/root/.local/share/ov/data:rw" \
+    --bind "${CACHE_PERSIST}/documents:/root/Documents:rw" \
     --bind "${PROJECT_PATH}:/workspace/project:rw" \
     --pwd /workspace/project \
     --env ACCEPT_EULA=Y \
@@ -85,13 +63,6 @@ singularity exec --nv --writable \
 
 EXIT_CODE=$?
 echo "[运行] singularity 退出码: ${EXIT_CODE}"
-
-# ── 4. 回写缓存到持久存储 ──
-echo "[缓存] 回写到持久存储: ${CACHE_TMP} → ${CACHE_PERSIST}"
-mkdir -p "${CACHE_PERSIST}"
-rsync -azP --delete "${CACHE_TMP}/" "${CACHE_PERSIST}/"
-echo "[缓存] 回写完成"
-
 echo "=============================================="
 echo " run_sandbox.sh 结束 (exit=${EXIT_CODE})"
 echo "=============================================="

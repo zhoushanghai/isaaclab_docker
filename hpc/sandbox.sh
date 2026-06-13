@@ -22,6 +22,7 @@ set -e
 DEFAULT_HPC_DIR=""   # 例: /path/to/isaaclab_docker/hpc
 DEFAULT_WANDB_API_KEY=""   # 例: wandb_v1_...；留空则不设置（亦可用 export WANDB_API_KEY）
 
+
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${ISAACLAB_DOCKER_HPC:-}" ]; then
     HPC_DIR="${ISAACLAB_DOCKER_HPC}"
@@ -67,47 +68,32 @@ load_singularity() {
     fi
 }
 
-# 交互式进入 sandbox（含缓存拷贝与退出回写）
+# 交互式进入 sandbox（cache 直接 bind SSD，无拷入/回写）
 run_interactive_shell() {
     load_singularity
     mkdir -p "${CONTAINER_HOME}/tmp"
-
-    local cache_tmp="${TMPDIR:-/tmp}/${USER}-isaaclab-${PROJECT_NAME}"
-    mkdir -p "${cache_tmp}"/{cache/{kit,ov,pip,glcache,computecache},logs,data,documents}
-
-    # 退出时回写缓存
-    sync_cache_back() {
-        echo "[sandbox] 回写缓存 → ${CACHE_PERSIST}"
-        mkdir -p "${CACHE_PERSIST}"
-        rsync -az "${cache_tmp}/" "${CACHE_PERSIST}/" 2>/dev/null || true
-    }
-    trap sync_cache_back EXIT
-
-    if [ -n "$(ls -A "${CACHE_PERSIST}" 2>/dev/null)" ]; then
-        echo "[sandbox] 加载缓存: ${CACHE_PERSIST}"
-        cp -r "${CACHE_PERSIST}/"* "${cache_tmp}/" 2>/dev/null || true
-    fi
+    isaaclab_ensure_cache_layout "${PROJECT_NAME}"
 
     echo "=============================================="
     echo " 项目     : ${PROJECT_NAME}"
     echo " 代码     : ${PROJECT_PATH}"
     echo " sandbox  : ${SANDBOX_PATH}"
     echo " home     : ${CONTAINER_HOME}"
-    echo " 缓存     : ${CACHE_PERSIST}"
+    echo " 缓存     : ${CACHE_PERSIST}  (SSD 直接挂载)"
     echo "=============================================="
 
     singularity exec --nv --writable \
         --bind "${CONTAINER_HOME}/tmp:/tmp" \
         --bind "${CONTAINER_HOME}:/root:rw" \
         --bind "${PROJECT_PATH}:/workspace/project:rw" \
-        --bind "${cache_tmp}/cache/kit:/isaac-sim/kit/cache:rw" \
-        --bind "${cache_tmp}/cache/ov:/root/.cache/ov:rw" \
-        --bind "${cache_tmp}/cache/pip:/root/.cache/pip:rw" \
-        --bind "${cache_tmp}/cache/glcache:/root/.cache/nvidia/GLCache:rw" \
-        --bind "${cache_tmp}/cache/computecache:/root/.nv/ComputeCache:rw" \
-        --bind "${cache_tmp}/logs:/root/.nvidia-omniverse/logs:rw" \
-        --bind "${cache_tmp}/data:/root/.local/share/ov/data:rw" \
-        --bind "${cache_tmp}/documents:/root/Documents:rw" \
+        --bind "${CACHE_PERSIST}/cache/kit:/isaac-sim/kit/cache:rw" \
+        --bind "${CACHE_PERSIST}/cache/ov:/root/.cache/ov:rw" \
+        --bind "${CACHE_PERSIST}/cache/pip:/root/.cache/pip:rw" \
+        --bind "${CACHE_PERSIST}/cache/glcache:/root/.cache/nvidia/GLCache:rw" \
+        --bind "${CACHE_PERSIST}/cache/computecache:/root/.nv/ComputeCache:rw" \
+        --bind "${CACHE_PERSIST}/logs:/root/.nvidia-omniverse/logs:rw" \
+        --bind "${CACHE_PERSIST}/data:/root/.local/share/ov/data:rw" \
+        --bind "${CACHE_PERSIST}/documents:/root/Documents:rw" \
         --pwd /workspace/project \
         --env ACCEPT_EULA=Y \
         --env PRIVACY_CONSENT=Y \

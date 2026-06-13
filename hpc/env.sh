@@ -9,7 +9,7 @@
 # hpc/project/<项目名>/ 结构：
 #   sim51_lab232_hpc_sandbox/  → 容器根文件系统
 #   home/                      → 容器 /root（pip、用户配置、tmp）
-#   cache/                     → Isaac Sim 运行时缓存
+#   cache/                     → Isaac Sim 运行时缓存（直接 bind SSD，不经 TMPDIR）
 # ==============================================================================
 
 # 从 env.sh 所在位置自动推断仓库路径（默认 SSD: .../jhspoolers/isaaclab_docker）
@@ -84,7 +84,14 @@ isaaclab_ensure_project() {
 isaaclab_init_project() {
     local name="$1"
     mkdir -p "$(isaaclab_container_home "${name}")/tmp"
-    mkdir -p "$(isaaclab_cache "${name}")"
+    isaaclab_ensure_cache_layout "${name}"
+}
+
+# 创建 cache 子目录（直接 bind 到 hpc2ssd project/<名>/cache/）
+isaaclab_ensure_cache_layout() {
+    local cache_root
+    cache_root="$(isaaclab_cache "$1")"
+    mkdir -p "${cache_root}"/{cache/{kit,ov,pip,glcache,computecache},logs,data,documents}
 }
 
 # 从共用 tar 解压该项目专属 sandbox（约 15GB，每个项目只需一次）

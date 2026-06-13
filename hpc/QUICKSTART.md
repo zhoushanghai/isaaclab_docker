@@ -92,7 +92,7 @@ python scripts/rsl_rl/train.py \
 ### 2.4 退出
 
 ```bash
-exit    # 自动回写 cache/
+exit    # 直接退出；缓存已实时写在 project/AFP/cache/（SSD）
 ```
 
 ---
