@@ -32,6 +32,7 @@
 
 | 文件 | 内容 |
 | :--- | :--- |
+| [QUICKSTART.md](./QUICKSTART.md) | **HPC 快速上手**（解压、交互式训练、常见问题） |
 | [Dockerfile.hpc](./Dockerfile.hpc) | HPC 专用 Root 模式 Dockerfile（方案 2） |
 | [pack_sandbox.sh](./pack_sandbox.sh) | 一键 Docker→Sandbox→tar 打包脚本（方案 2） |
 | [run_sandbox.sh](./run_sandbox.sh) | HPC 计算节点运行脚本（方案 2） |
