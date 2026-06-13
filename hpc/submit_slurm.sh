@@ -135,6 +135,8 @@ mkdir -p ${PROJECT_PATH}/logs
 
 module load ${SINGULARITY_MODULE}
 
+export WANDB_API_KEY="${WANDB_API_KEY:-}"
+
 bash ${RUN_SANDBOX} \
     "${SANDBOX_PATH}" \
     "${PROJECT_PATH}" \

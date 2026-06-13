@@ -79,6 +79,7 @@ singularity exec --nv --writable \
     --env ACCEPT_EULA=Y \
     --env PRIVACY_CONSENT=Y \
     --env NVIDIA_DRIVER_CAPABILITIES=all \
+    --env WANDB_API_KEY="${WANDB_API_KEY:-}" \
     "${SANDBOX_PATH}" \
     bash -c "${PYTHON_CMD}"
 

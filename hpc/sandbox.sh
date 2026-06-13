@@ -15,10 +15,34 @@
 # ==============================================================================
 set -e
 
-# 仓库根目录：写死默认路径；脚本可放在任意位置，亦可用环境变量覆盖
-ISAACLAB_DOCKER_ROOT="${ISAACLAB_DOCKER_ROOT:-/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker}"
-HPC_DIR="${ISAACLAB_DOCKER_HPC:-${ISAACLAB_DOCKER_ROOT}/hpc}"
-# shellcheck source=hpc/env.sh
+# ==============================================================================
+# 用户配置 — 脚本拷到 ~/bin 时填写 hpc 目录；留空则用脚本同目录（脚本在 hpc/ 内）
+# 亦可用环境变量：export ISAACLAB_DOCKER_HPC=/path/to/hpc
+# ==============================================================================
+DEFAULT_HPC_DIR=""   # 例: /path/to/isaaclab_docker/hpc
+DEFAULT_WANDB_API_KEY=""   # 例: wandb_v1_...；留空则不设置（亦可用 export WANDB_API_KEY）
+
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${ISAACLAB_DOCKER_HPC:-}" ]; then
+    HPC_DIR="${ISAACLAB_DOCKER_HPC}"
+elif [ -n "${DEFAULT_HPC_DIR}" ]; then
+    HPC_DIR="${DEFAULT_HPC_DIR}"
+else
+    HPC_DIR="${_SCRIPT_DIR}"
+fi
+export ISAACLAB_DOCKER_HPC="${HPC_DIR}"
+
+# 脚本内配置仅在未 export 时生效；已设置的 WANDB_API_KEY 优先
+if [ -n "${DEFAULT_WANDB_API_KEY}" ] && [ -z "${WANDB_API_KEY:-}" ]; then
+    export WANDB_API_KEY="${DEFAULT_WANDB_API_KEY}"
+fi
+
+if [ ! -f "${HPC_DIR}/env.sh" ]; then
+    echo "ERROR: 找不到 ${HPC_DIR}/env.sh" >&2
+    echo "  请设置 sandbox.sh 顶部 DEFAULT_HPC_DIR，或 export ISAACLAB_DOCKER_HPC=..." >&2
+    exit 1
+fi
+# shellcheck source=env.sh
 source "${HPC_DIR}/env.sh"
 
 SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity-ce-4.1.3}"
@@ -106,7 +130,8 @@ cmd_info() {
     resolve_project_arg "${arg}"
     echo "项目名        : ${PROJECT_NAME}"
     echo "代码路径      : ${PROJECT_PATH}"
-    echo "项目数据目录  : $(isaaclab_project_data "${PROJECT_NAME}")"
+    echo "hpc 目录      : ${HPC_DIR}"
+    echo "容器数据目录  : $(isaaclab_project_data "${PROJECT_NAME}")"  # sandbox/home/cache，非数据集
     echo "sandbox       : ${SANDBOX_PATH} $([ -d "${SANDBOX_PATH}" ] && echo '[已存在]' || echo '[未创建]')"
     echo "home          : ${CONTAINER_HOME}"
     echo "缓存          : ${CACHE_PERSIST}"
@@ -178,6 +203,11 @@ cmd_reset_sandbox() {
 usage() {
     cat <<EOF
 用法: $0 <命令> <项目名|项目路径> [选项]
+
+配置:
+  DEFAULT_HPC_DIR 留空 → 用脚本同目录（脚本在 hpc/ 内时自动生效）
+  拷到 ~/bin 时填写 hpc 路径，或 export ISAACLAB_DOCKER_HPC=/path/to/hpc
+  DEFAULT_WANDB_API_KEY 填写后自动传入容器（export WANDB_API_KEY 优先）
 
 命令:
   init            创建/检查 hpc/project/<名>/（sandbox + home + cache，有则跳过）
