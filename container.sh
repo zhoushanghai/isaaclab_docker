@@ -64,6 +64,33 @@ run_container() {
         docker rm -f "${container_name}" >/dev/null
     fi
 
+    # 自动加载 WANDB_API_KEY（如果当前环境变量中没有）
+    if [ -z "${WANDB_API_KEY}" ]; then
+        local files=(
+            ".env"
+            "$(dirname "$0")/.env"
+            "${HOME}/.bashrc"
+            "${HOME}/.zshrc"
+            "${HOME}/.profile"
+        )
+        for file in "${files[@]}"; do
+            if [ -f "${file}" ]; then
+                local line
+                line=$(grep -E '^\s*(export\s+)?WANDB_API_KEY=' "${file}" | head -n 1)
+                if [ -n "${line}" ]; then
+                    local clean_line value
+                    clean_line=$(echo "${line}" | cut -d# -f1)
+                    value=$(echo "${clean_line}" | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+                    if [ -n "${value}" ]; then
+                        export WANDB_API_KEY="${value}"
+                        echo "Auto-loaded WANDB_API_KEY from ${file}"
+                        break
+                    fi
+                fi
+            fi
+        done
+    fi
+
     echo "Starting container as user: ${RUN_USER}"
     echo "Container name: ${container_name}"
     echo "Project mount: /home/${RUN_USER}/project  <- $(pwd)"
