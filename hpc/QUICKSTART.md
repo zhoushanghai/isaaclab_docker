@@ -12,8 +12,7 @@ isaaclab_docker/
 └── hpc/
     ├── sim51_lab232_hpc_sandbox.tar  # sandbox 模板（全项目共用一份）
     ├── env.sh
-    ├── run_sandbox.sh
-    ├── submit_slurm.sh
+    ├── sandbox.sh
     ├── pack_sandbox.sh               # 本地重打镜像时用
     └── project/                      # 各项目容器数据（gitignore）
         └── AFP/
@@ -99,19 +98,32 @@ exit    # 直接退出；缓存已实时写在 project/AFP/cache/（SSD）
 
 ## 3. 后台提交（长作业）
 
-在登录节点执行，无需先 `srun`：
+SLURM 资源申请由你自己的 `sbatch` 脚本管理；作业内调用 `sandbox.sh exec` 进入容器执行训练：
 
 ```bash
-/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh submit AFP \
-  --script scripts/rsl_rl/train.py \
-  --args '--headless --num_envs 4096'
+#!/bin/bash
+#SBATCH --job-name=AFP
+#SBATCH --partition=i64m1tga800u
+#SBATCH --gres=gpu:a800:8
+#SBATCH --cpus-per-task=128
+#SBATCH --mem=512G
+#SBATCH --time=24:00:00
+#SBATCH --output=~/porject/AFP/logs/slurm-%j.out
+#SBATCH --error=~/porject/AFP/logs/slurm-%j.err
 
-# 或直接写完整命令
-/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/sandbox.sh submit AFP \
-  --cmd 'python scripts/rsl_rl/train.py --headless'
+module load singularity-ce-4.1.3
+export WANDB_API_KEY="你的API密钥"
+
+/hpc2hdd/home/hwang721/jhspoolers/isaaclab_docker/hpc/sandbox.sh exec AFP \
+  bash bash/8gpu_bym_train.sh
 ```
 
-可选参数：`--partition` `--gpu` `--cpus` `--mem` `--time`
+登录节点提交：
+
+```bash
+mkdir -p ~/porject/AFP/logs
+sbatch ~/sbatch/afp.sh
+```
 
 ```bash
 squeue -u $USER                              # 查看状态
@@ -124,6 +136,7 @@ tail -f ~/porject/AFP/logs/slurm-<id>.out   # 查看日志
 
 ```bash
 sandbox.sh info AFP              # 查看路径
+sandbox.sh exec AFP bash train.sh # 容器内执行命令
 sandbox.sh init my_proj          # 新项目
 sandbox.sh reset-sandbox AFP     # 从 tar 重置 sandbox（不动 home/cache/代码）
 ```

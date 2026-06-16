@@ -4,13 +4,13 @@
 #
 # 容器数据统一在 hpc/project/<名>/；代码在 ~/porject/<名>/
 # 有则复用，无则自动创建。
-# GPU 节点申请请在外部自行 srun，进入节点后再执行本脚本 shell。
+# SLURM 申请（sbatch/srun）请在外部自行处理；本脚本只负责容器环境。
 #
 # 用法:
 #   ./sandbox.sh init   <项目名|项目路径>
 #   ./sandbox.sh info   <项目名|项目路径>
-#   ./sandbox.sh shell  <项目名|项目路径>          # 交互进入（需已在 GPU 节点）
-#   ./sandbox.sh submit <项目名|项目路径> [选项]     # sbatch 后台提交
+#   ./sandbox.sh shell  <项目名|项目路径>                    # 交互进入
+#   ./sandbox.sh exec   <项目名|项目路径> <命令...>            # 非交互执行
 #   ./sandbox.sh reset-sandbox <项目名|项目路径>
 # ==============================================================================
 set -e
@@ -68,20 +68,21 @@ load_singularity() {
     fi
 }
 
-# 交互式进入 sandbox（cache 直接 bind SSD，无拷入/回写）
-run_interactive_shell() {
+# 容器内执行前的公共准备（cache 直接 bind SSD，无拷入/回写）
+_prepare_sandbox_run() {
     load_singularity
     mkdir -p "${CONTAINER_HOME}/tmp"
     isaaclab_ensure_cache_layout "${PROJECT_NAME}"
 
-    echo "=============================================="
-    echo " 项目     : ${PROJECT_NAME}"
-    echo " 代码     : ${PROJECT_PATH}"
-    echo " sandbox  : ${SANDBOX_PATH}"
-    echo " home     : ${CONTAINER_HOME}"
-    echo " 缓存     : ${CACHE_PERSIST}  (SSD 直接挂载)"
-    echo "=============================================="
+    if [ ! -d "${SANDBOX_PATH}" ]; then
+        echo "ERROR: sandbox 不存在: ${SANDBOX_PATH}" >&2
+        echo "  请先执行: $0 init ${PROJECT_NAME}" >&2
+        exit 1
+    fi
+}
 
+# 在 sandbox 内执行命令（shell / exec 共用 bind 配置）
+_run_in_sandbox() {
     singularity exec --nv --writable \
         --bind "${CONTAINER_HOME}/tmp:/tmp" \
         --bind "${CONTAINER_HOME}:/root:rw" \
@@ -100,7 +101,23 @@ run_interactive_shell() {
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         --env WANDB_API_KEY="${WANDB_API_KEY:-}" \
         "${SANDBOX_PATH}" \
-        bash -i
+        "$@"
+}
+
+# 交互式进入 sandbox
+run_interactive_shell() {
+    _prepare_sandbox_run
+
+    echo "=============================================="
+    echo " shell"
+    echo " 项目     : ${PROJECT_NAME}"
+    echo " 代码     : ${PROJECT_PATH}"
+    echo " sandbox  : ${SANDBOX_PATH}"
+    echo " home     : ${CONTAINER_HOME}"
+    echo " 缓存     : ${CACHE_PERSIST}  (SSD 直接挂载)"
+    echo "=============================================="
+
+    _run_in_sandbox bash -i
 }
 
 cmd_init() {
@@ -130,54 +147,31 @@ cmd_shell() {
     run_interactive_shell
 }
 
-cmd_submit() {
+# 非交互执行：剩余参数原样传入容器（工作目录 /workspace/project）
+cmd_exec() {
     local arg="$1"
     shift
-    resolve_project_arg "${arg}"
-    isaaclab_ensure_project "${PROJECT_NAME}"
 
-    local script="" args="" cmd="" partition="i64m1tga800u" gpu="a800:1"
-    local cpus="8" mem="64G" time="24:00:00"
-
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --script)    script="$2";    shift 2 ;;
-            --args)      args="$2";      shift 2 ;;
-            --cmd)       cmd="$2";       shift 2 ;;
-            --partition) partition="$2"; shift 2 ;;
-            --gpu)       gpu="$2";       shift 2 ;;
-            --cpus)      cpus="$2";      shift 2 ;;
-            --mem)       mem="$2";       shift 2 ;;
-            --time)      time="$2";      shift 2 ;;
-            *) echo "ERROR: 未知参数: $1"; exit 1 ;;
-        esac
-    done
-
-    local submit_args=(
-        --project "${PROJECT_PATH}"
-        --sandbox "${SANDBOX_PATH}"
-        --cache "${CACHE_PERSIST}"
-        --partition "${partition}"
-        --gpu "${gpu}"
-        --cpus "${cpus}"
-        --mem "${mem}"
-        --time "${time}"
-        --job-name "${PROJECT_NAME}"
-    )
-
-    if [ -n "${cmd}" ]; then
-        submit_args+=(--cmd "${cmd}")
-    elif [ -n "${script}" ]; then
-        submit_args+=(--script "${script}")
-        [ -n "${args}" ] && submit_args+=(--args "${args}")
-    else
-        echo "ERROR: submit 需要 --script + --args 或 --cmd" >&2
-        echo "  示例: ./sandbox.sh submit AFP --script scripts/rsl_rl/train.py --args '--headless'"
-        echo "  示例: ./sandbox.sh submit AFP --cmd 'python scripts/rsl_rl/train.py --headless'"
+    if [ $# -eq 0 ]; then
+        echo "ERROR: exec 需要指定要运行的命令" >&2
+        echo "  示例: $0 exec AFP bash bash/8gpu_bym_train.sh" >&2
+        echo "  示例: $0 exec AFP python scripts/rsl_rl/train.py --headless" >&2
         exit 1
     fi
 
-    bash "${HPC_DIR}/submit_slurm.sh" "${submit_args[@]}"
+    resolve_project_arg "${arg}"
+    isaaclab_ensure_project "${PROJECT_NAME}"
+    _prepare_sandbox_run
+
+    echo "=============================================="
+    echo " exec"
+    echo " 项目     : ${PROJECT_NAME}"
+    echo " 代码     : ${PROJECT_PATH}"
+    echo " sandbox  : ${SANDBOX_PATH}"
+    echo " 命令     : $*"
+    echo "=============================================="
+
+    _run_in_sandbox "$@"
 }
 
 cmd_reset_sandbox() {
@@ -199,7 +193,7 @@ usage() {
   init            创建/检查 hpc/project/<名>/（sandbox + home + cache，有则跳过）
   info            查看项目路径
   shell           交互进入 sandbox（需已在外部申请好 GPU 节点）
-  submit          sbatch 后台提交训练任务
+  exec            在 sandbox 内非交互执行命令（sbatch/srun 作业中调用）
   reset-sandbox   从 tar 重置该项目 sandbox
 
 项目参数:
@@ -213,10 +207,14 @@ usage() {
   $0 shell AFP
 
   $0 init AFP
-  $0 submit AFP --script scripts/rsl_rl/train.py --args '--headless --num_envs 4096'
-  $0 submit AFP --cmd 'python scripts/rsl_rl/train.py --headless'
+  $0 exec AFP bash bash/8gpu_bym_train.sh
+  $0 exec AFP python scripts/rsl_rl/train.py --headless --num_envs 4096
 
-submit 选项: --script --args  或  --cmd  以及  --partition --gpu --cpus --mem --time
+sbatch 示例（资源申请在外部脚本中自行配置）:
+  #SBATCH --partition=i64m1tga800u
+  #SBATCH --gres=gpu:a800:8
+  module load singularity-ce-4.1.3
+  $0 exec AFP bash bash/8gpu_bym_train.sh
 EOF
 }
 
@@ -237,9 +235,9 @@ case "${CMD}" in
         [ -n "${1:-}" ] || { usage; exit 1; }
         cmd_shell "$1"
         ;;
-    submit)
+    exec)
         [ -n "${1:-}" ] || { usage; exit 1; }
-        cmd_submit "$@"
+        cmd_exec "$@"
         ;;
     reset-sandbox)
         [ -n "${1:-}" ] || { usage; exit 1; }
