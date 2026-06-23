@@ -134,11 +134,32 @@ run_container() {
         -v "$(pwd):/home/${RUN_USER}/project" \
         ${IMAGE_NAME}
 
-    # 打印提示信息，方便用户直接复制进入容器的命令
+    # 启动 SSH 服务 (如果指定了端口)
+    if [ -n "${RUN_SSH_PORT}" ]; then
+        echo "Starting SSH service inside container on port ${RUN_SSH_PORT}..."
+        # 动态修改 sshd_config 中的端口
+        docker exec "${container_name}" sudo sed -i "s/^Port .*/Port ${RUN_SSH_PORT}/g" /etc/ssh/sshd_config
+        # 启动 SSH 服务
+        docker exec -d "${container_name}" sudo service ssh start
+    fi
+
+    # 获取宿主机网络 IP 地址
+    local host_ip
+    host_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || hostname -I | awk '{print $1}')
+
+    # 打印提示信息，方便用户直接复制进入容器 of 命令
     echo ""
     echo "=================================================="
     echo "请运行以下命令进入容器："
     echo "  docker exec -it ${container_name} bash"
+    if [ -n "${RUN_SSH_PORT}" ]; then
+        echo ""
+        echo "或者通过 SSH 远程连接进行开发："
+        echo "  ssh -p ${RUN_SSH_PORT} ${RUN_USER}@localhost"
+        if [ -n "${host_ip}" ]; then
+            echo "  ssh -p ${RUN_SSH_PORT} ${RUN_USER}@${host_ip}"
+        fi
+    fi
     echo "=================================================="
     echo ""
 }
@@ -147,6 +168,7 @@ run_container() {
 parse_run_args() {
     RUN_GPU="all"
     RUN_CONTAINER_NAME="${CONTAINER_NAME}"
+    RUN_SSH_PORT=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --gpu)
@@ -159,9 +181,14 @@ parse_run_args() {
                 RUN_CONTAINER_NAME="$2"
                 shift 2
                 ;;
+            --ssh)
+                [ -n "${2}" ] || { echo "ERROR: --ssh requires a port number"; exit 1; }
+                RUN_SSH_PORT="$2"
+                shift 2
+                ;;
             *)
                 echo "ERROR: unknown option: $1"
-                echo "Usage: $0 run [--name NAME] [--gpu ID]"
+                echo "Usage: $0 run [--name NAME] [--gpu ID] [--ssh PORT]"
                 exit 1
                 ;;
         esac
@@ -179,7 +206,7 @@ case "${1}" in
         run_container "${RUN_GPU}" "${RUN_CONTAINER_NAME}"
         ;;
     *)
-        echo "Usage: $0 {build|run [--name NAME] [--gpu ID]}"
+        echo "Usage: $0 {build|run [--name NAME] [--gpu ID] [--ssh PORT]}"
         echo "  build - Build the Docker image with current user's UID/GID"
         echo "  run   - Run the container (default name: ${CONTAINER_NAME})"
         exit 1
