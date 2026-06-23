@@ -105,6 +105,16 @@ run_container() {
         wandb_mounts+=("-v" "$HOME/.config/wandb:/home/${RUN_USER}/.config/wandb")
     fi
 
+    # 继承宿主机 git 身份配置（user.name / user.email）及 SSH 凭据
+    # :ro 确保容器内无法修改宿主机的密钥文件
+    local git_mounts=()
+    if [ -f "$HOME/.gitconfig" ]; then
+        git_mounts+=("-v" "$HOME/.gitconfig:/home/${RUN_USER}/.gitconfig:ro")
+    fi
+    if [ -d "$HOME/.ssh" ]; then
+        git_mounts+=("-v" "$HOME/.ssh:/home/${RUN_USER}/.ssh:ro")
+    fi
+
     docker run --name "${container_name}" --runtime=nvidia --entrypoint bash -dit \
         --gpus "${docker_gpus}" \
         -e "ACCEPT_EULA=Y" --network=host --ipc=host \
@@ -116,6 +126,7 @@ run_container() {
         -e QT_X11_NO_MITSHM=1 \
         -e WANDB_API_KEY="${WANDB_API_KEY}" \
         "${wandb_mounts[@]}" \
+        "${git_mounts[@]}" \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         -v $HOME/.Xauthority:/home/${RUN_USER}/.Xauthority \
         -v /etc/localtime:/etc/localtime:ro \
