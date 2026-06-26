@@ -96,14 +96,6 @@ run_container() {
     echo "Project mount: /home/${RUN_USER}/project  <- $(pwd)"
     echo "Using DISPLAY=${display}"
 
-    # 配置 wandb 登录态挂载（若宿主机存在则自动挂载，避免容器内重新登录）
-    local wandb_mounts=()
-    if [ -f "$HOME/.netrc" ]; then
-        wandb_mounts+=("-v" "$HOME/.netrc:/home/${RUN_USER}/.netrc:ro")
-    fi
-    if [ -d "$HOME/.config/wandb" ]; then
-        wandb_mounts+=("-v" "$HOME/.config/wandb:/home/${RUN_USER}/.config/wandb")
-    fi
 
     # 继承宿主机 git 身份配置（user.name / user.email）及 SSH 凭据
     # :ro 确保容器内无法修改宿主机的密钥文件
@@ -125,7 +117,6 @@ run_container() {
         -e XAUTHORITY=/home/${RUN_USER}/.Xauthority \
         -e QT_X11_NO_MITSHM=1 \
         -e WANDB_API_KEY="${WANDB_API_KEY}" \
-        "${wandb_mounts[@]}" \
         "${git_mounts[@]}" \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         -v $HOME/.Xauthority:/home/${RUN_USER}/.Xauthority \
@@ -133,6 +124,13 @@ run_container() {
         -v /etc/timezone:/etc/timezone:ro \
         -v "$(pwd):/home/${RUN_USER}/project" \
         ${IMAGE_NAME}
+
+    # 将 WANDB_API_KEY 写入容器内 ~/.bashrc（确保 docker exec 交互式 shell 能获取）
+    if [ -n "${WANDB_API_KEY}" ]; then
+        docker exec "${container_name}" bash -c \
+            "echo 'export WANDB_API_KEY=\"${WANDB_API_KEY}\"' >> /home/${RUN_USER}/.bashrc"
+        echo "WANDB_API_KEY persisted to container ~/.bashrc"
+    fi
 
     # 启动 SSH 服务 (如果指定了端口)
     if [ -n "${RUN_SSH_PORT}" ]; then
