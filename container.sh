@@ -132,6 +132,10 @@ run_container() {
         echo "WANDB_API_KEY persisted to container ~/.bashrc"
     fi
 
+    # 将 MPLCONFIGDIR 写入容器内 ~/.bashrc
+    docker exec "${container_name}" bash -c \
+        "echo 'export MPLCONFIGDIR=/tmp/matplotlib' >> /home/${RUN_USER}/.bashrc"
+
     # 启动 SSH 服务 (如果指定了端口)
     if [ -n "${RUN_SSH_PORT}" ]; then
         echo "Starting SSH service inside container on port ${RUN_SSH_PORT}..."
