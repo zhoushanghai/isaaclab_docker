@@ -92,7 +92,7 @@ RUN for cmd in python python3; do \
     ln -sf /home/${USER_NAME}/IsaacLab/isaaclab.sh /usr/local/bin/isaaclab
 
 # ── SSH 服务配置 ──
-RUN apt-get update && apt-get install -y openssh-server && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y openssh-server rsync && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/run/sshd && \
     sed -i 's/#\?Port 22/Port 2222/g' /etc/ssh/sshd_config && \
     sed -i 's/#\?PasswordAuthentication .*/PasswordAuthentication no/g' /etc/ssh/sshd_config && \
